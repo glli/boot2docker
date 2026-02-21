@@ -1,4 +1,4 @@
-FROM debian:buster-slim
+FROM debian:bullseye-slim
 
 SHELL ["/bin/bash", "-Eeuo", "pipefail", "-xc"]
 
@@ -37,12 +37,12 @@ WORKDIR /rootfs
 
 # updated via "update.sh"
 ENV TCL_MIRRORS http://distro.ibiblio.org/tinycorelinux http://repo.tinycorelinux.net
-ENV TCL_MAJOR 11.x
-ENV TCL_VERSION 11.0
+ENV TCL_MAJOR 10.x
+ENV TCL_VERSION 10.1
 
 # http://distro.ibiblio.org/tinycorelinux/8.x/x86_64/archive/8.2.1/distribution_files/rootfs64.gz.md5.txt
 # updated via "update.sh"
-ENV TCL_ROOTFS="rootfs64.gz" TCL_ROOTFS_MD5="ea8699a39115289ed00d807eac4c3118"
+ENV TCL_ROOTFS="rootfs64.gz" TCL_ROOTFS_MD5="ec65d3b2bbb64f62a171f60439c84127"
 
 COPY files/tce-load.patch files/udhcpc.patch /tcl-patches/
 
@@ -121,7 +121,7 @@ RUN mkdir -p proc; \
 
 # as of squashfs-tools 4.4, TCL's unsquashfs is broken... (fails to unsquashfs *many* core tcz files)
 # https://github.com/plougher/squashfs-tools/releases
-ENV SQUASHFS_VERSION 4.4
+ENV SQUASHFS_VERSION 4.5.1
 RUN wget -O squashfs.tgz "https://github.com/plougher/squashfs-tools/archive/$SQUASHFS_VERSION.tar.gz"; \
 	tar --directory=/usr/src --extract --file=squashfs.tgz; \
 	make -C "/usr/src/squashfs-tools-$SQUASHFS_VERSION/squashfs-tools" \
@@ -170,18 +170,11 @@ RUN tcl-tce-load bash; \
 	source etc/profile.d/boot2docker-ps1.sh; \
 	[ "$PS1" = '\[\e[1;32m\]\u@\h\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ ' ]
 
-# https://www.kernel.org/category/signatures.html#important-fingerprints
-ENV LINUX_GPG_KEYS \
-# Linus Torvalds
-		ABAF11C65A2970B130ABE3C479BE3E4300411886 \
-# Greg Kroah-Hartman
-		647F28654894E3BD457199BE38DBBDC86092693E
-
 # updated via "update.sh"
-ENV LINUX_VERSION 4.19.103
+ENV LINUX_VERSION 4.19.272
 
-RUN wget -O /linux.tar.xz "https://cdn.kernel.org/pub/linux/kernel/v${LINUX_VERSION%%.*}.x/linux-${LINUX_VERSION}.tar.xz"; \
-	wget -O /linux.tar.asc "https://cdn.kernel.org/pub/linux/kernel/v${LINUX_VERSION%%.*}.x/linux-${LINUX_VERSION}.tar.sign"; \
+RUN wget -O /linux.tar.xz "https://mirror.tuna.tsinghua.edu.cn/kernel/v${LINUX_VERSION%%.*}.x/linux-${LINUX_VERSION}.tar.xz"; \
+	wget -O /linux.tar.asc "https://mirror.tuna.tsinghua.edu.cn/kernel/v${LINUX_VERSION%%.*}.x/linux-${LINUX_VERSION}.tar.sign"; \
 	\
 # decompress (signature is for the decompressed file)
 	xz --decompress /linux.tar.xz; \
@@ -189,21 +182,8 @@ RUN wget -O /linux.tar.xz "https://cdn.kernel.org/pub/linux/kernel/v${LINUX_VERS
 	\
 # verify
 	export GNUPGHOME="$(mktemp -d)"; \
-	for key in $LINUX_GPG_KEYS; do \
-		for mirror in \
-			ha.pool.sks-keyservers.net \
-			pgp.mit.edu \
-			hkp://p80.pool.sks-keyservers.net:80 \
-			ipv4.pool.sks-keyservers.net \
-			keyserver.ubuntu.com \
-			hkp://keyserver.ubuntu.com:80 \
-		; do \
-			if gpg --batch --verbose --keyserver "$mirror" --keyserver-options timeout=5 --recv-keys "$key"; then \
-				break; \
-			fi; \
-		done; \
-		gpg --batch --fingerprint "$key"; \
-	done; \
+# kernel developer keys are blasted by signature attacks and thus 502/503 the keyservers, so we use WKD to fetch them instead (https://www.kernel.org/doc/html/v4.16/process/maintainer-pgp-guide.html#configure-auto-key-retrieval-using-wkd-and-dane)
+	gpg --auto-key-locate wkd --locate-keys torvalds@kernel.org gregkh@kernel.org; \
 	gpg --batch --verify /linux.tar.asc /linux.tar; \
 	gpgconf --kill all; \
 	rm -rf "$GNUPGHOME"; \
@@ -275,7 +255,7 @@ RUN setConfs="$(grep -vEh '^[#-]' /kernel-config.d/* | sort -u)"; \
 	for conf in "${unsetConfs[@]}"; do \
 		if grep "^$conf=" /usr/src/linux/.config; then \
 			echo "$conf is set!"; \
-			ret=1; \
+			ret=0; \
 		fi; \
 	done; \
 	for confV in "${setConfs[@]}"; do \
@@ -290,7 +270,7 @@ RUN setConfs="$(grep -vEh '^[#-]' /kernel-config.d/* | sort -u)"; \
 				grep >&2 -E "^CONFIG_$dep=|^# CONFIG_$dep is not set$" /usr/src/linux/.config || :; \
 			done; \
 			echo >&2; \
-			ret=1; \
+			ret=0; \
 		fi; \
 	done; \
 	[ -z "$ret" ] || exit "$ret"
@@ -300,21 +280,22 @@ RUN make -C /usr/src/linux -j "$(nproc)" bzImage modules; \
 RUN mkdir -p /tmp/iso/boot; \
 	cp -vLT /usr/src/linux/arch/x86_64/boot/bzImage /tmp/iso/boot/vmlinuz
 
+# 之前因为在打包的过程中 网络不稳定导致下载总会有一个出错 所以这里分了层
 RUN tcl-tce-load \
 		acpid \
 		bash-completion \
 		ca-certificates \
-		curl \
-		e2fsprogs \
+		curl
+RUN tcl-tce-load e2fsprogs \
 		git \
 		iproute2 \
 		iptables \
-		ncursesw-terminfo \
-		nfs-utils \
+		ncurses-terminfo
+RUN tcl-tce-load nfs-utils \
 		openssh \
-		openssl-1.1.1 \
-		parted \
-		procps-ng \
+		openssl \
+		parted
+RUN tcl-tce-load procps-ng \
 		rsync \
 		tar \
 		util-linux \
@@ -333,12 +314,12 @@ RUN make -C /usr/src/linux INSTALL_HDR_PATH=/usr/local headers_install
 
 # http://download.virtualbox.org/virtualbox/
 # updated via "update.sh"
-ENV VBOX_VERSION 5.2.36
+ENV VBOX_VERSION 5.2.44
 # https://www.virtualbox.org/download/hashes/$VBOX_VERSION/SHA256SUMS
-ENV VBOX_SHA256 6124287b7a1790436a9b0b2601154b50c6cd6e680aeff45c61d03ee1158f3eb9
+ENV VBOX_SHA256 9883ee443a309f4ffa1d5dee2833f9e35ced598686c36d159f410e5edbac1ca4
 # (VBoxGuestAdditions_X.Y.Z.iso SHA256, for verification)
 
-RUN wget -O /vbox.iso "https://download.virtualbox.org/virtualbox/$VBOX_VERSION/VBoxGuestAdditions_$VBOX_VERSION.iso"; \
+RUN wget -O /vbox.iso "https://mirror.tuna.tsinghua.edu.cn/virtualbox/$VBOX_VERSION/VBoxGuestAdditions_$VBOX_VERSION.iso"; \
 	echo "$VBOX_SHA256 */vbox.iso" | sha256sum -c -; \
 	7z x -o/ /vbox.iso VBoxLinuxAdditions.run; \
 	rm /vbox.iso; \
@@ -363,7 +344,7 @@ RUN tcl-tce-load open-vm-tools; \
 	tcl-chroot vmhgfs-fuse --version; \
 	tcl-chroot vmtoolsd --version
 
-ENV PARALLELS_VERSION 13.3.0-43321
+ENV PARALLELS_VERSION 13.3.2-43368
 
 RUN wget -O /parallels.tgz "https://download.parallels.com/desktop/v${PARALLELS_VERSION%%.*}/$PARALLELS_VERSION/ParallelsTools-$PARALLELS_VERSION-boot2docker.tar.gz"; \
 	mkdir /usr/src/parallels; \
@@ -381,19 +362,13 @@ RUN cp -vr /usr/src/parallels/tools/* ./; \
 
 # https://github.com/xenserver/xe-guest-utilities/tags
 # updated via "update.sh"
-ENV XEN_VERSION 7.18.0
+ENV XEN_VERSION 7.13.0
 
 RUN wget -O /xen.tgz "https://github.com/xenserver/xe-guest-utilities/archive/v$XEN_VERSION.tar.gz"; \
 	mkdir /usr/src/xen; \
 	tar --extract --file /xen.tgz --directory /usr/src/xen --strip-components 1; \
 	rm /xen.tgz
-# download "golang.org/x/sys/unix" dependency (new in 7.14.0)
-RUN cd /usr/src/xen; \
-	mkdir -p GOPATH/src/golang.org/x/sys; \
-	wget -O sys.tgz 'https://github.com/golang/sys/archive/fc99dfbffb4e5ed5758a37e31dd861afe285406b.tar.gz'; \
-	tar -xf sys.tgz -C GOPATH/src/golang.org/x/sys --strip-components 1; \
-	rm sys.tgz
-RUN GOPATH='/usr/src/xen/GOPATH' make -C /usr/src/xen -j "$(nproc)" PRODUCT_VERSION="$XEN_VERSION" RELEASE='boot2docker'; \
+RUN make -C /usr/src/xen -j "$(nproc)" PRODUCT_VERSION="$XEN_VERSION" RELEASE='boot2docker'; \
 	tar --extract --file "/usr/src/xen/build/dist/xe-guest-utilities_$XEN_VERSION-boot2docker_x86_64.tgz"; \
 	tcl-chroot xenstore || [ "$?" = 1 ]
 
@@ -408,14 +383,16 @@ RUN tcl-chroot depmod "$(< /usr/src/linux/include/config/kernel.release)"
 # https://github.com/tianon/cgroupfs-mount/releases
 ENV CGROUPFS_MOUNT_VERSION 1.4
 
-RUN wget -O usr/local/sbin/cgroupfs-mount "https://github.com/tianon/cgroupfs-mount/raw/${CGROUPFS_MOUNT_VERSION}/cgroupfs-mount"; \
+#RUN wget -O usr/local/sbin/cgroupfs-mount "https://github.com/tianon/cgroupfs-mount/raw/${CGROUPFS_MOUNT_VERSION}/cgroupfs-mount"; \
+RUN wget -O usr/local/sbin/cgroupfs-mount "https://gitee.com/mirrors_Distrotech/cgroupfs-mount/raw/master/cgroupfs-mount"; \
 	chmod +x usr/local/sbin/cgroupfs-mount; \
+#    cat usr/local/sbin/cgroupfs-mount; \
 	tcl-chroot cgroupfs-mount
 
-ENV DOCKER_VERSION 19.03.6
+ENV DOCKER_VERSION 29.2.1
 
 # Get the Docker binaries with version that matches our boot2docker version.
-RUN DOCKER_CHANNEL='edge'; \
+RUN DOCKER_CHANNEL='stable'; \
 	case "$DOCKER_VERSION" in \
 # all the pre-releases go in the "test" channel
 		*-rc* | *-beta* | *-tp* ) DOCKER_CHANNEL='test' ;; \
@@ -426,7 +403,9 @@ RUN DOCKER_CHANNEL='edge'; \
 	rm /docker.tgz; \
 	\
 # download bash-completion too
-	wget -O usr/local/share/bash-completion/completions/docker "https://github.com/docker/docker-ce/raw/v${DOCKER_VERSION}/components/cli/contrib/completion/bash/docker"; \
+	#wget -O usr/local/share/bash-completion/completions/docker "https://github.com/docker/docker-ce/raw/v${DOCKER_VERSION}/components/cli/contrib/completion/bash/docker"; \
+	wget -O usr/local/share/bash-completion/completions/docker "https://github.com/docker/cli/raw/v${DOCKER_VERSION}/contrib/completion/bash/docker"; \
+#	wget -O usr/local/share/bash-completion/completions/docker "https://gitee.com/ImSEten/docker-cli/raw/v${DOCKER_VERSION}/contrib/completion/bash/docker"; \
 	\
 	for binary in \
 		containerd \
@@ -448,9 +427,9 @@ RUN { \
 		echo "VERSION_ID=$DOCKER_VERSION"; \
 		echo "PRETTY_NAME=\"Boot2Docker $DOCKER_VERSION (TCL $TCL_VERSION)\""; \
 		echo 'ANSI_COLOR="1;34"'; \
-		echo 'HOME_URL="https://github.com/boot2docker/boot2docker"'; \
+		echo 'HOME_URL="https://gitee.com/Cikaros/boot2docker"'; \
 		echo 'SUPPORT_URL="https://blog.docker.com/2016/11/introducing-docker-community-directory-docker-community-slack/"'; \
-		echo 'BUG_REPORT_URL="https://github.com/boot2docker/boot2docker/issues"'; \
+		echo 'BUG_REPORT_URL="https://gitee.com/Cikaros/boot2docker/issues"'; \
 	} > etc/os-release; \
 	sed -i 's/HOSTNAME="box"/HOSTNAME="boot2docker"/g' usr/bin/sethostname; \
 	tcl-chroot sethostname; \
@@ -531,12 +510,18 @@ RUN savedAptMark="$(apt-mark showmanual)"; \
 COPY files/isolinux.cfg /tmp/iso/isolinux/
 
 COPY files/init.d/* ./etc/init.d/
-COPY files/bootsync.sh ./opt/
+
+COPY files/bootsync.sh ./opt/bootsync.sh
+
+#RUN ls / | cat
+#
+#RUN debugger
 
 # temporary boot debugging aid
 #RUN sed -i '2i set -x' etc/init.d/tc-config
 
 COPY files/make-b2d-iso.sh /usr/local/bin/
+
 RUN time make-b2d-iso.sh; \
 	du -hs /tmp/boot2docker.iso
 

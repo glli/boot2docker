@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 # TODO http://distro.ibiblio.org/tinycorelinux/latest-x86_64
-major='11.x'
-version='11.0' # TODO auto-detect latest
+major='13.x'
+version='13.0' # TODO auto-detect latest
 # 9.x doesn't seem to use ".../archive/X.Y.Z/..." in the same way as 8.x :(
 
 mirrors=(
@@ -12,10 +12,10 @@ mirrors=(
 )
 
 # https://www.kernel.org/
-kernelBase='4.19'
+kernelBase='5.15.10'
 # https://github.com/boot2docker/boot2docker/issues/1398
 # https://download.virtualbox.org/virtualbox/
-vboxBase='5'
+vboxBase='6'
 
 # avoid issues with slow Git HTTP interactions (*cough* sourceforge *cough*)
 export GIT_HTTP_LOW_SPEED_LIMIT='100'
@@ -87,12 +87,14 @@ seds+=(
 
 # PARALLELS_VERSION: https://github.com/boot2docker/boot2docker/pull/1332#issuecomment-420273330
 
+# TODO figure out what's up with 7.14.0 and why it fails to build
 xenVersion="$(
 	git ls-remote --tags 'https://github.com/xenserver/xe-guest-utilities.git' \
 		| cut -d/ -f3 \
 		| cut -d^ -f1 \
 		| grep -E '^v[0-9]+' \
 		| cut -dv -f2- \
+		| grep -E '^7[.]13[.]' \
 		| sort -rV \
 		| head -1
 )"

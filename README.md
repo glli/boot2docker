@@ -1,3 +1,119 @@
+## Continue to update boot2docker, mainly tested on Windows 10
+
+# Boot2Docker Image Builder
+
+## Requirements
+
+- A running Docker daemon with **v24+**
+
+---
+
+## Build
+
+Build the image:
+
+```bash
+docker build -t my-boot2docker .
+```
+
+Generate the `boot2docker.iso` file:
+
+```bash
+docker run --rm my-boot2docker > boot2docker.iso
+```
+
+---
+
+## Tips
+
+Some CLI applications (for example, Gemini CLI in sandbox mode or Supabase running on Windows) require Docker and rely on bind mounts using Windows-style paths.
+
+However, the Boot2Docker daemon cannot parse Windows paths directly, which may cause mount failures.
+
+There are two possible solutions:
+
+---
+
+## Solution 1: Run Applications Inside the VM
+
+Run the CLI applications directly inside the virtual machine.
+
+To persist Docker data:
+
+1. Store data under:
+
+   ```
+   /var/lib/boot2docker
+   ```
+
+2. Create a directory:
+
+   ```
+   /var/lib/boot2docker/docker
+   ```
+
+3. Bind mount it to at startup by adding the following line to `/var/lib/boot2docker/profile`:
+
+   ```
+   mount --bind /var/lib/boot2docker/docker /home/docker
+   ```
+
+This ensures the Docker home directory remains persistent.
+
+---
+
+## Solution 2: Use `docker-proxy` (Recommended)
+
+This project includes a `docker-proxy` utility that converts Windows paths into Linux paths automatically.
+
+### Setup
+
+1. Create a folder named:
+
+   ```
+   docker
+   ```
+
+   on Windows.
+
+2. Share this folder with your VM (with write permissions), for example:
+
+   ```
+   /mnt/hgfs/docker   # VMware example
+   ```
+
+3. Inside the `docker` folder, create a subfolder:
+
+   ```
+   volumes
+   ```
+
+4. Create junction links inside `volumes`, for example:
+
+   ```
+   C  ->  C:\
+   D  ->  D:\
+   ```
+
+### How It Works
+
+When the Docker daemon inside the VM receives a Windows path such as:
+
+```bash
+D:\proj
+```
+
+`docker-proxy` converts it to:
+
+```bash
+/mnt/hgfs/docker/volumes/D/proj
+```
+
+This allows the Boot2Docker daemon to correctly resolve and mount Windows directories.
+
+For detailed usage instructions, please refer to the `README.md` inside the `docker-proxy` folder.
+## Below is from the original repo
+***
 # DEPRECATED
 
 Boot2Docker is officially deprecated and unmaintained.  It is recommended that users transition from Boot2Docker over to [Docker Desktop](https://www.docker.com/products/docker-desktop) instead (especially with [the new WSL2 backend, which supports Windows 10 Home](https://www.docker.com/blog/docker-desktop-for-windows-home-is-here/)).

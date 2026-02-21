@@ -52,7 +52,7 @@ To persist Docker data:
    /var/lib/boot2docker/docker
    ```
 
-3. Bind mount it to at startup by adding the following line to `/var/lib/boot2docker/profile`:
+3. Bind mount it to `/home/docker` at startup by adding the following line to `/var/lib/boot2docker/profile`:
 
    ```
    mount --bind /var/lib/boot2docker/docker /home/docker
